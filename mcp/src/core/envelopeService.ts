@@ -28,7 +28,7 @@ function getDefaultSigner(): EnvelopeSigner {
   return defaultSigner;
 }
 
-function getDefaultLdsQueue(): InMemoryLdsIngestQueue {
+export function getDefaultLdsQueue(): InMemoryLdsIngestQueue {
   if (!defaultLdsQueue) {
     defaultLdsQueue = new InMemoryLdsIngestQueue();
   }
