@@ -3,55 +3,28 @@
 import {
   AlignmentEvalRequestPayload,
   AlignmentEvalResultPayload,
-  DriftLevel,
 } from './types';
 
-/**
- * Temporary drift mapper.
- * Keep this consistent with the Alignment Engine until we hook into it.
- */
-function driftLevelFromScore(score: number): DriftLevel {
-  if (score >= 0.9) return 'drift_0';
-  if (score >= 0.75) return 'drift_1';
-  if (score >= 0.5) return 'drift_2';
-  if (score >= 0.25) return 'drift_3';
-  return 'drift_4';
-}
+// ⬇️ Import the real core function from the Alignment Engine repo.
+// Path: mcp core/mcp/src/alignment/ -> ../../../../ (to Dev/) -> entity-alignment/...
+import { evaluateAlignment as engineEvaluateAlignment } from '../../../../entity-alignment/alignment-engine/src/core/index';
 
 /**
- * v0 adapter:
- *  - uses the SAME request/result shapes as the real Alignment Engine
- *  - still computes a local dummy score for now
+ * v1 adapter:
+ *  - uses the SAME request/result shapes as the Alignment Engine
+ *  - delegates directly to the engine's evaluateAlignment() core
  *
- * Next patch:
- *  - replace internals with a real call into the Alignment Engine
- *    (HTTP/module/CLI).
+ * NOTE:
+ *  - We rely on structural typing: our AlignmentEvalRequestPayload matches
+ *    the engine's request shape, so we can pass the object through.
  */
 export async function evaluateAlignmentViaAdapter(
   request: AlignmentEvalRequestPayload,
 ): Promise<AlignmentEvalResultPayload> {
-  // TODO: Call real Alignment Engine.
-  const alignmentScore = 0.8;
+  // Direct call into Alignment Engine core.
+  const result = engineEvaluateAlignment(request);
 
-  const evaluationId = [
-    'mcp-eval',
-    request.nodeId,
-    Date.now().toString(36),
-    Math.random().toString(36).slice(2, 6),
-  ].join('_');
-
-  const driftLevel = driftLevelFromScore(alignmentScore);
-
-  return {
-    nodeId: request.nodeId,
-    evaluationId,
-    alignmentScore,
-    driftLevel,
-    evaluatedAt: new Date().toISOString(),
-    correlationId: request.correlationId,
-    notes: [
-      'v0 MCP adapter: local dummy evaluation. Replace with real Alignment Engine call.',
-    ],
-  };
+  // We trust the engine to return the correct AlignmentEvalResultPayload
+  // shape. If needed later, we can add additional MCP-side decoration here.
+  return result as AlignmentEvalResultPayload;
 }
-
