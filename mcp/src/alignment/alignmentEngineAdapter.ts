@@ -7,8 +7,8 @@ import {
 } from './types';
 
 /**
- * Temporary, local drift mapper.
- * Keep in sync with Alignment Engine until we call it directly.
+ * Temporary drift mapper.
+ * Keep this consistent with the Alignment Engine until we hook into it.
  */
 function driftLevelFromScore(score: number): DriftLevel {
   if (score >= 0.9) return 'drift_0';
@@ -20,12 +20,12 @@ function driftLevelFromScore(score: number): DriftLevel {
 
 /**
  * v0 adapter:
- * - Uses the SAME request/result shapes as the real engine.
- * - Still computes a local dummy score for now.
+ *  - uses the SAME request/result shapes as the real Alignment Engine
+ *  - still computes a local dummy score for now
  *
  * Next patch:
- * - Replace internals with a real call into the Alignment Engine
- *   (HTTP, CLI, or module import).
+ *  - replace internals with a real call into the Alignment Engine
+ *    (HTTP/module/CLI).
  */
 export async function evaluateAlignmentViaAdapter(
   request: AlignmentEvalRequestPayload,
