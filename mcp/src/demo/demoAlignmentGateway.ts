@@ -5,16 +5,14 @@ import {
   AlignmentEvalResultPayload,
 } from '../alignment/types';
 import { evaluateAlignmentViaAdapter } from '../alignment/alignmentEngineAdapter';
+import { createEnvelope, enqueueEnvelope } from '../core/envelopeService';
 
 /**
  * Minimal demo that:
  *  - builds a request payload
  *  - calls the MCP alignment adapter
- *  - logs the result
- *
- * Later we'll:
- *  - wrap this result in an MCP envelope
- *  - send it into LDS / Projections
+ *  - wraps result in an MCP envelope
+ *  - sends it into LDS / Projections
  */
 export async function runDemoAlignmentGateway(): Promise<AlignmentEvalResultPayload> {
   const request: AlignmentEvalRequestPayload = {
@@ -29,8 +27,16 @@ export async function runDemoAlignmentGateway(): Promise<AlignmentEvalResultPayl
 
   const result = await evaluateAlignmentViaAdapter(request);
 
-  // For now, just log it. We'll envelope it in the next patch.
-  console.log('[DemoAlignmentGateway] alignment eval result:', result);
+  // Build the MCP envelope using your standard v0 structure
+  const envelope = createEnvelope({
+    type: 'alignment.evaluation.v0',
+    payload: result,
+  });
+
+  // Push into LDS ingest queue
+  await enqueueEnvelope(envelope);
+
+  console.log('[DemoAlignmentGateway] Envelope queued:', envelope.header.envelopeId);
 
   return result;
 }

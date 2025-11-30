@@ -20,7 +20,14 @@ export class LdsIngestProcessor {
     const records: LdsIngestRecord[] = this.queue.drain();
 
     for (const record of records) {
-      const payload = record.envelope.body.payload;
+      const envelope = record.envelope;
+      const payload = envelope.body.payload;
+
+      // Optional: log alignment evaluation events specifically
+      if (envelope.body.payloadType === 'alignment.evaluation.v0') {
+        // eslint-disable-next-line no-console
+        console.log('[LDS] Received alignment evaluation event:', envelope.header.envelopeId);
+      }
 
       // v0 behaviour: just log. Real LDS Lite will replace this.
       // eslint-disable-next-line no-console
