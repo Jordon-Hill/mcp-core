@@ -63,7 +63,8 @@ export type Intent =
   | "PROJECTION_GENERATION"
   | "DATA_INGEST"
   | "QUERY"
-  | "UPDATE";
+  | "UPDATE"
+  | "TKD_PROPOSAL_APPLY";
 
 /**
  * Payload is typed and schema-declared content

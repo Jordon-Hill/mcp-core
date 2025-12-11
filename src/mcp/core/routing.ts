@@ -54,7 +54,7 @@ export const LEGAL_ROUTES: LegalRoute[] = [
   {
     from: "TKD",
     to: "MCP",
-    intent: ["DATA_INGEST", "PATTERN_EXTRACTION"],
+    intent: ["DATA_INGEST", "PATTERN_EXTRACTION", "TKD_PROPOSAL_APPLY"],
     description: "TKD sends processed data to MCP for routing"
   },
   {

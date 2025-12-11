@@ -18,6 +18,7 @@ import {
   requiresAlignmentReview,
   AlignmentReviewResult
 } from "./alignment";
+import { handleTKDProposal, TKDProposalHandlerResult } from "../handlers/tkdProposalHandler";
 
 /**
  * Routing result
@@ -71,6 +72,22 @@ export async function routeMessage(
       halted: false,
       error: `Illegal route: ${from} → ${to} with intent ${message.intent}`
     };
+  }
+
+  // Step 1.5: Handle TKD proposals as first-class messages
+  if (message.intent === "TKD_PROPOSAL_APPLY") {
+    const proposalResult = handleTKDProposal(message);
+    if (!proposalResult.success) {
+      return {
+        success: false,
+        routed: false,
+        halted: false,
+        error: proposalResult.error,
+        constraintResult: proposalResult.constraintResult
+      };
+    }
+    // Proposal validated successfully, continue with normal routing flow
+    // The normalized proposal is available in proposalResult.proposal
   }
 
   // Step 2: Check constitutional constraints
