@@ -73,6 +73,15 @@ export function adaptStatelessReadOnlyToolCall20260728(
   authority: SovereignBoundaryAuthority,
   timestamp = new Date().toISOString()
 ): AdaptedStatelessReadOnlyCall {
+  if (request.protocolVersion !== MCP_PROTOCOL_VERSION_2026_07_28) {
+    throw new Error(
+      `Unsupported MCP protocol version: ${String(request.protocolVersion)}`
+    );
+  }
+  if (request.method !== "tools/call") {
+    throw new Error(`Unsupported MCP method: ${String(request.method)}`);
+  }
+
   requireNonEmpty(request.requestId, "requestId");
   requireNonEmpty(request.name, "tool name");
   requireNonEmpty(authority.caller.nodeId, "Sovereign caller nodeId");
