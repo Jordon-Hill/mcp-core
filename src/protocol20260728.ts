@@ -15,17 +15,29 @@ export interface MCP20260728ClientInfo {
 }
 
 export interface MCP20260728RequestMeta {
-  clientInfo?: MCP20260728ClientInfo;
-  clientCapabilities?: Record<string, unknown>;
+  "io.modelcontextprotocol/protocolVersion": typeof MCP_PROTOCOL_VERSION_2026_07_28;
+  "io.modelcontextprotocol/clientInfo"?: MCP20260728ClientInfo;
+  "io.modelcontextprotocol/clientCapabilities": Record<string, unknown>;
 }
 
+export type MCP20260728JSONRPCId = string | number;
+
 export interface MCP20260728ReadOnlyToolCall {
-  protocolVersion: typeof MCP_PROTOCOL_VERSION_2026_07_28;
-  requestId: string;
-  method: "tools/call";
-  name: string;
-  arguments: unknown;
-  meta?: MCP20260728RequestMeta;
+  headers: {
+    "MCP-Protocol-Version": typeof MCP_PROTOCOL_VERSION_2026_07_28;
+    "Mcp-Method": "tools/call";
+    "Mcp-Name": string;
+  };
+  body: {
+    jsonrpc: "2.0";
+    id: MCP20260728JSONRPCId;
+    method: "tools/call";
+    params: {
+      name: string;
+      arguments?: unknown;
+      _meta: MCP20260728RequestMeta;
+    };
+  };
 }
 
 /**
@@ -43,7 +55,7 @@ export interface AdaptedStatelessReadOnlyCall {
   transportMetadata: {
     protocolVersion: typeof MCP_PROTOCOL_VERSION_2026_07_28;
     clientInfo?: MCP20260728ClientInfo;
-    clientCapabilities?: Record<string, unknown>;
+    clientCapabilities: Record<string, unknown>;
   };
   legacyCompatibility: {
     /**
@@ -60,37 +72,104 @@ function requireNonEmpty(value: string, label: string): void {
   }
 }
 
+function requireHeaderBodyMatch(
+  headerValue: string,
+  bodyValue: string,
+  label: string
+): void {
+  if (headerValue !== bodyValue) {
+    throw new Error(`MCP 2026-07-28 header/body mismatch: ${label}`);
+  }
+}
+
+function requestIdToken(id: MCP20260728JSONRPCId): string {
+  if (typeof id === "number" && !Number.isFinite(id)) {
+    throw new Error("JSON-RPC request id must be finite");
+  }
+  const token = String(id);
+  requireNonEmpty(token, "JSON-RPC request id");
+  return token;
+}
+
 /**
- * Adapts one self-contained MCP 2026-07-28 read-only tools/call request to the
- * legacy internal MCPMessage shape without creating protocol session state.
+ * Adapts one self-contained MCP 2026-07-28 Streamable HTTP tools/call request
+ * to the legacy internal MCPMessage shape without creating protocol session state.
  *
- * Transport clientInfo/clientCapabilities remain informational metadata only.
- * Caller identity, permissions and provenance come exclusively from the
- * Sovereign-owned authority argument.
+ * The final 2026-07-28 wire contract is represented explicitly:
+ * - MCP-Protocol-Version mirrors _meta/io.modelcontextprotocol/protocolVersion;
+ * - Mcp-Method mirrors the JSON-RPC method;
+ * - Mcp-Name mirrors params.name;
+ * - clientInfo/clientCapabilities are per-request _meta only.
+ *
+ * Transport metadata remains informational protocol context only. Caller identity,
+ * permissions and provenance come exclusively from the Sovereign-owned authority
+ * argument and are never derived from client-reported _meta.
  */
 export function adaptStatelessReadOnlyToolCall20260728(
   request: MCP20260728ReadOnlyToolCall,
   authority: SovereignBoundaryAuthority,
   timestamp = new Date().toISOString()
 ): AdaptedStatelessReadOnlyCall {
-  if (request.protocolVersion !== MCP_PROTOCOL_VERSION_2026_07_28) {
+  const { headers, body } = request;
+  const meta = body.params._meta;
+
+  if (headers["MCP-Protocol-Version"] !== MCP_PROTOCOL_VERSION_2026_07_28) {
     throw new Error(
-      `Unsupported MCP protocol version: ${String(request.protocolVersion)}`
+      `Unsupported MCP protocol version: ${headers["MCP-Protocol-Version"]}`
     );
   }
-  if (request.method !== "tools/call") {
-    throw new Error(`Unsupported MCP method: ${String(request.method)}`);
+  if (
+    meta["io.modelcontextprotocol/protocolVersion"] !==
+    MCP_PROTOCOL_VERSION_2026_07_28
+  ) {
+    throw new Error(
+      `Unsupported MCP protocol version: ${String(
+        meta["io.modelcontextprotocol/protocolVersion"]
+      )}`
+    );
   }
 
-  requireNonEmpty(request.requestId, "requestId");
-  requireNonEmpty(request.name, "tool name");
+  if (body.jsonrpc !== "2.0") {
+    throw new Error(`Unsupported JSON-RPC version: ${String(body.jsonrpc)}`);
+  }
+  if (body.method !== "tools/call") {
+    throw new Error(`Unsupported MCP method: ${String(body.method)}`);
+  }
+
+  requireHeaderBodyMatch(
+    headers["MCP-Protocol-Version"],
+    meta["io.modelcontextprotocol/protocolVersion"],
+    "protocol version"
+  );
+  requireHeaderBodyMatch(headers["Mcp-Method"], body.method, "method");
+  requireHeaderBodyMatch(headers["Mcp-Name"], body.params.name, "name");
+
+  requireNonEmpty(body.params.name, "tool name");
   requireNonEmpty(authority.caller.nodeId, "Sovereign caller nodeId");
 
   if (authority.provenance.length === 0) {
     throw new Error("Sovereign provenance must be non-empty");
   }
 
-  const requestScopedSessionId = `mcp-2026-07-28-request:${request.requestId}`;
+  const clientCapabilities =
+    meta["io.modelcontextprotocol/clientCapabilities"];
+  if (
+    clientCapabilities === null ||
+    typeof clientCapabilities !== "object" ||
+    Array.isArray(clientCapabilities)
+  ) {
+    throw new Error("MCP clientCapabilities must be an object");
+  }
+
+  const clientInfo = meta["io.modelcontextprotocol/clientInfo"];
+  if (clientInfo) {
+    requireNonEmpty(clientInfo.name, "MCP clientInfo.name");
+    requireNonEmpty(clientInfo.version, "MCP clientInfo.version");
+  }
+
+  const requestScopedSessionId = `mcp-2026-07-28-request:${requestIdToken(
+    body.id
+  )}`;
 
   const message: MCPMessage = {
     context: {
@@ -105,20 +184,18 @@ export function adaptStatelessReadOnlyToolCall20260728(
       schema: "mcp-2026-07-28-read-only-tool-call",
       schemaVersion: "1.0",
       content: {
-        name: request.name,
-        arguments: request.arguments,
+        name: body.params.name,
+        arguments: body.params.arguments,
       },
     },
   };
 
   const transportMetadata: AdaptedStatelessReadOnlyCall["transportMetadata"] = {
     protocolVersion: MCP_PROTOCOL_VERSION_2026_07_28,
+    clientCapabilities: { ...clientCapabilities },
   };
-  if (request.meta?.clientInfo) {
-    transportMetadata.clientInfo = { ...request.meta.clientInfo };
-  }
-  if (request.meta?.clientCapabilities) {
-    transportMetadata.clientCapabilities = { ...request.meta.clientCapabilities };
+  if (clientInfo) {
+    transportMetadata.clientInfo = { ...clientInfo };
   }
 
   return {
