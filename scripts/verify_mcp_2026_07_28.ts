@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   adaptStatelessReadOnlyToolCall20260728,
   invokeStatelessReadOnlyQuery20260728,
+  MCP_2026_07_28_READ_ONLY_TOOL_NAME,
   MCP_PROTOCOL_VERSION_2026_07_28,
   type MCP20260728ReadOnlyToolCall,
   type SovereignBoundaryAuthority,
@@ -47,7 +48,8 @@ async function main(): Promise<void> {
   const makeRequest = (
     requestId: string,
     claimedCapabilities: Record<string, unknown>,
-    includeClientInfo = true
+    includeClientInfo = true,
+    toolName = MCP_2026_07_28_READ_ONLY_TOOL_NAME
   ): MCP20260728ReadOnlyToolCall => {
     const _meta: MCP20260728ReadOnlyToolCall["body"]["params"]["_meta"] = {
       "io.modelcontextprotocol/protocolVersion":
@@ -66,14 +68,14 @@ async function main(): Promise<void> {
       headers: {
         "MCP-Protocol-Version": MCP_PROTOCOL_VERSION_2026_07_28,
         "Mcp-Method": "tools/call",
-        "Mcp-Name": "crystalline.read_only_query",
+        "Mcp-Name": toolName,
       },
       body: {
         jsonrpc: "2.0",
         id: requestId,
         method: "tools/call",
         params: {
-          name: "crystalline.read_only_query",
+          name: toolName,
           arguments: { subject: "compatibility-proof" },
           _meta,
         },
@@ -92,7 +94,7 @@ async function main(): Promise<void> {
     "2026-08-08T00:00:01.000Z"
   );
 
-  // clientInfo is a SHOULD in the final spec; absence must not create authority or state.
+  // clientInfo is optional/self-reported; absence must not create authority or state.
   const second = await invokeStatelessReadOnlyQuery20260728(
     makeRequest(
       "request-b",
@@ -162,6 +164,20 @@ async function main(): Promise<void> {
     /header\/body mismatch: name/
   );
   assert.equal(routedQueries, 2);
+
+  // The seam is bound to exactly one application-owned read-only capability.
+  // A header-consistent hostile/mutating-looking tool name must fail before routing.
+  const unsupportedTool = makeRequest(
+    "request-d",
+    { canonicalMutation: true },
+    true,
+    "crystalline.mutate_everything"
+  );
+  assert.throws(
+    () => adaptStatelessReadOnlyToolCall20260728(unsupportedTool, authority),
+    /Unsupported read-only MCP tool/
+  );
+  assert.equal(routedQueries, 2);
   assert.equal(mutationAttempts, 0);
 
   console.log(
@@ -172,6 +188,7 @@ async function main(): Promise<void> {
       firstSessionMarker: first.adapted.message.context.sessionId,
       secondSessionMarker: second.adapted.message.context.sessionId,
       headerBodyMismatchRejected: true,
+      unsupportedToolRejected: true,
     })
   );
 }
