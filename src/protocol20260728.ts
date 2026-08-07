@@ -8,6 +8,8 @@ import { routeMessage } from "./mcp/core/router";
 import type { RouterContext, RoutingResult } from "./mcp/core/router";
 
 export const MCP_PROTOCOL_VERSION_2026_07_28 = "2026-07-28" as const;
+export const MCP_2026_07_28_READ_ONLY_TOOL_NAME =
+  "crystalline.read_only_query" as const;
 
 export interface MCP20260728ClientInfo {
   name: string;
@@ -95,10 +97,12 @@ function requestIdToken(id: MCP20260728JSONRPCId): string {
  * Adapts one self-contained MCP 2026-07-28 Streamable HTTP tools/call request
  * to the legacy internal MCPMessage shape without creating protocol session state.
  *
- * The final 2026-07-28 wire contract is represented explicitly:
+ * The final 2026-07-28 wire contract is represented explicitly for this one
+ * read-only capability:
  * - MCP-Protocol-Version mirrors _meta/io.modelcontextprotocol/protocolVersion;
  * - Mcp-Method mirrors the JSON-RPC method;
  * - Mcp-Name mirrors params.name;
+ * - params.name must equal the application-owned read-only tool identifier;
  * - clientInfo/clientCapabilities are per-request _meta only.
  *
  * Transport metadata remains informational protocol context only. Caller identity,
@@ -145,6 +149,11 @@ export function adaptStatelessReadOnlyToolCall20260728(
   requireHeaderBodyMatch(headers["Mcp-Name"], body.params.name, "name");
 
   requireNonEmpty(body.params.name, "tool name");
+  if (body.params.name !== MCP_2026_07_28_READ_ONLY_TOOL_NAME) {
+    throw new Error(
+      `Unsupported read-only MCP tool: ${body.params.name}`
+    );
+  }
   requireNonEmpty(authority.caller.nodeId, "Sovereign caller nodeId");
 
   if (authority.provenance.length === 0) {
@@ -184,7 +193,7 @@ export function adaptStatelessReadOnlyToolCall20260728(
       schema: "mcp-2026-07-28-read-only-tool-call",
       schemaVersion: "1.0",
       content: {
-        name: body.params.name,
+        name: MCP_2026_07_28_READ_ONLY_TOOL_NAME,
         arguments: body.params.arguments,
       },
     },
