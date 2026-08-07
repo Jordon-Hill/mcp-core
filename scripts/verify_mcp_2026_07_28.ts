@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  adaptStatelessReadOnlyToolCall20260728,
   invokeStatelessReadOnlyQuery20260728,
   MCP_PROTOCOL_VERSION_2026_07_28,
   type MCP20260728ReadOnlyToolCall,
@@ -45,21 +46,40 @@ async function main(): Promise<void> {
 
   const makeRequest = (
     requestId: string,
-    claimedCapabilities: Record<string, unknown>
-  ): MCP20260728ReadOnlyToolCall => ({
-    protocolVersion: MCP_PROTOCOL_VERSION_2026_07_28,
-    requestId,
-    method: "tools/call",
-    name: "crystalline.read_only_query",
-    arguments: { subject: "compatibility-proof" },
-    meta: {
-      clientInfo: {
+    claimedCapabilities: Record<string, unknown>,
+    includeClientInfo = true
+  ): MCP20260728ReadOnlyToolCall => {
+    const _meta: MCP20260728ReadOnlyToolCall["body"]["params"]["_meta"] = {
+      "io.modelcontextprotocol/protocolVersion":
+        MCP_PROTOCOL_VERSION_2026_07_28,
+      "io.modelcontextprotocol/clientCapabilities": claimedCapabilities,
+    };
+
+    if (includeClientInfo) {
+      _meta["io.modelcontextprotocol/clientInfo"] = {
         name: "untrusted-client-metadata",
         version: "1.0.0",
+      };
+    }
+
+    return {
+      headers: {
+        "MCP-Protocol-Version": MCP_PROTOCOL_VERSION_2026_07_28,
+        "Mcp-Method": "tools/call",
+        "Mcp-Name": "crystalline.read_only_query",
       },
-      clientCapabilities: claimedCapabilities,
-    },
-  });
+      body: {
+        jsonrpc: "2.0",
+        id: requestId,
+        method: "tools/call",
+        params: {
+          name: "crystalline.read_only_query",
+          arguments: { subject: "compatibility-proof" },
+          _meta,
+        },
+      },
+    };
+  };
 
   const first = await invokeStatelessReadOnlyQuery20260728(
     makeRequest("request-a", {
@@ -72,11 +92,16 @@ async function main(): Promise<void> {
     "2026-08-08T00:00:01.000Z"
   );
 
+  // clientInfo is a SHOULD in the final spec; absence must not create authority or state.
   const second = await invokeStatelessReadOnlyQuery20260728(
-    makeRequest("request-b", {
-      canonicalMutation: false,
-      unrelatedCapability: true,
-    }),
+    makeRequest(
+      "request-b",
+      {
+        canonicalMutation: false,
+        unrelatedCapability: true,
+      },
+      false
+    ),
     authority,
     ctx,
     "2026-08-08T00:00:02.000Z"
@@ -103,7 +128,7 @@ async function main(): Promise<void> {
     "mcp-2026-07-28-request:request-b"
   );
 
-  // Governed read-only meaning is equivalent despite different protocol-request identity.
+  // Governed read-only meaning is equivalent despite independent protocol requests.
   assert.deepEqual(first.adapted.message.payload, second.adapted.message.payload);
   assert.deepEqual(first.adapted.message.context.caller, second.adapted.message.context.caller);
   assert.deepEqual(
@@ -111,14 +136,14 @@ async function main(): Promise<void> {
     second.adapted.message.context.permissions
   );
 
-  // Client-reported metadata is retained only as transport metadata and grants no authority.
+  // Client-reported metadata stays transport-only and grants no Sovereign authority.
   assert.equal(first.adapted.message.context.caller.nodeId, "local");
   assert.equal(first.adapted.message.context.caller.moduleId, "MCP");
   assert.deepEqual(first.adapted.message.context.permissions, [
     { resource: "crystalline:kg", action: "read" },
   ]);
   assert.equal(
-    first.adapted.transportMetadata.clientCapabilities?.canonicalMutation,
+    first.adapted.transportMetadata.clientCapabilities.canonicalMutation,
     true
   );
   assert.equal(
@@ -127,6 +152,17 @@ async function main(): Promise<void> {
     ),
     false
   );
+  assert.equal(second.adapted.transportMetadata.clientInfo, undefined);
+
+  // Final HTTP semantics require header/body routing metadata to agree.
+  const mismatchedName = makeRequest("request-c", {});
+  mismatchedName.headers["Mcp-Name"] = "different-tool";
+  assert.throws(
+    () => adaptStatelessReadOnlyToolCall20260728(mismatchedName, authority),
+    /header\/body mismatch: name/
+  );
+  assert.equal(routedQueries, 2);
+  assert.equal(mutationAttempts, 0);
 
   console.log(
     "MCP_2026_07_28_STATELESS_READ_ONLY_BOUNDARY_PROOF_PASSED",
@@ -135,6 +171,7 @@ async function main(): Promise<void> {
       mutationAttempts,
       firstSessionMarker: first.adapted.message.context.sessionId,
       secondSessionMarker: second.adapted.message.context.sessionId,
+      headerBodyMismatchRejected: true,
     })
   );
 }
