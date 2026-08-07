@@ -8,7 +8,7 @@ Outcome classification: `small_adapter_required`
 
 ## Final upstream change
 
-The finalized Model Context Protocol specification dated `2026-07-28` removes the `initialize` / `initialized` handshake and the `Mcp-Session-Id` protocol session. Requests are self-contained and carry protocol/client metadata per request. Server-to-client interactions are restructured around stateless request/response mechanisms such as MRTR rather than requiring a held-open protocol session.
+The finalized Model Context Protocol specification dated `2026-07-28` removes the `initialize` / `initialized` handshake and the `Mcp-Session-Id` protocol session. Each request is self-contained. Required per-request `_meta` carries `io.modelcontextprotocol/protocolVersion` and `io.modelcontextprotocol/clientCapabilities`; `io.modelcontextprotocol/clientInfo` is self-reported client metadata and is optional/SHOULD. For Streamable HTTP, `MCP-Protocol-Version`, `Mcp-Method`, and (for `tools/call`) `Mcp-Name` mirror body fields and must agree. Server-to-client request patterns move to stateless mechanisms such as MRTR rather than requiring a held-open protocol session.
 
 This change validates rather than replaces Sovereign-owned durable state and authority separation.
 
@@ -34,6 +34,7 @@ Durable workflow state remains in Sovereign-owned task, receipt or application s
 - `src/mcp/core/alignment.ts` — internal alignment forwarding/review logic; no MCP server-initiated sampling/elicitation/roots transport implementation found.
 - `docs/MCP_v1.1.md` — legacy architecture describes session state and a federated handshake.
 - current repository history/source search for `initialize`, `Mcp-Session-Id`, sticky connection state, sampling, elicitation and roots.
+- finalized MCP 2026-07-28 schema and Streamable HTTP transport rules for per-request `_meta` and header/body agreement.
 
 ## Session-state dependencies found
 
@@ -64,11 +65,27 @@ Legacy internals are retained for compatibility. The new boundary adapter is del
 
 ## Implemented seam
 
-`src/protocol20260728.ts` adds a bounded adapter for one self-contained MCP 2026-07-28 read-only `tools/call` request.
+`src/protocol20260728.ts` adds a bounded adapter for one self-contained MCP 2026-07-28 Streamable HTTP `tools/call` request.
+
+The adapter now models the finalized wire boundary directly:
+
+```text
+MCP-Protocol-Version
+↔ _meta[io.modelcontextprotocol/protocolVersion]
+
+Mcp-Method
+↔ JSON-RPC method
+
+Mcp-Name
+↔ params.name
+```
 
 The adapter:
 
 - accepts one request at a time with no shared protocol session;
+- requires the final per-request protocol-version and client-capabilities `_meta` fields;
+- accepts optional self-reported `clientInfo` without using it for security or routing authority;
+- rejects header/body routing metadata mismatch before the internal route is invoked;
 - keeps client info/capabilities as informational `transportMetadata` only;
 - requires caller identity, permissions and provenance as a separate `SovereignBoundaryAuthority` argument;
 - maps only to the existing internal `QUERY` intent;
@@ -84,30 +101,46 @@ The adapter:
 npm run verify:mcp-2026-07-28
 ```
 
+## Exact-head review repair
+
+The first adapter draft used a simplified normalized request shape rather than the finalized reserved `_meta` keys and required Streamable HTTP header mirrors. Exact-head review caught that mismatch before merge. The bounded repair above replaced only that protocol-boundary representation; it did not change the legacy orchestration/router model, canonical authority, application state, federation architecture or Crystalline MIP route.
+
 ## Smallest proof result
 
-The proof invokes the same read-only capability twice with independent request identities and no shared protocol session.
+The proof invokes the same existing read-only `MCP -> CRYSTALLINE / QUERY` capability twice with independent request identities and no shared protocol session.
 
 Observed acceptance conditions:
 
 ```text
-first stateless request
+first final-format stateless request
+→ required header/body metadata agrees
 → existing MCP -> CRYSTALLINE QUERY route succeeds
-second stateless request with different request-local marker
+
+second independent final-format request
+→ no clientInfo required for authority
 → same governed QUERY payload succeeds
-→ no shared session marker
+→ different request-local compatibility marker
+→ no shared session lookup or state
+
+client-reported capabilities claim mutation/approval/identity power
+→ claims remain transport metadata only
 → caller identity remains Sovereign-supplied
 → permissions remain Sovereign-supplied read-only permissions
-→ client-reported metadata claiming mutation/approval/identity authority is retained only as metadata
-→ zero mutation attempts
+
+mismatched Mcp-Name vs params.name
+→ rejected before routing
+
+all proof calls
+→ zero canonical/external mutation
 ```
 
-Isolated TypeScript execution result:
+Focused proof command expected success marker:
 
 ```text
 MCP_2026_07_28_STATELESS_READ_ONLY_BOUNDARY_PROOF_PASSED
 routedQueries=2
 mutationAttempts=0
+headerBodyMismatchRejected=true
 ```
 
 ## Legacy compatibility disposition
@@ -117,6 +150,16 @@ Do not delete or broadly rewrite the legacy `src/mcp` model in this pass.
 In particular, `performFederationHandshake` and the legacy federation capability vocabulary are not adopted as MCP 2026-07-28 protocol handshake or transport authorization. If that federation path is later activated, it requires its own owner-level identity/authentication/capability proof; client `_meta` must not satisfy it.
 
 The request-local `sessionId` compatibility marker is temporary legacy-shape accommodation, not durable workflow state and not an MCP session. A later cleanup may rename/remove it only when current internal consumers and tests can be migrated without widening this task.
+
+## Validation posture
+
+- focused protocol-boundary proof: required;
+- TypeScript build/typecheck: required where the repository can be executed;
+- existing repository tests: required where the repository can be executed;
+- GitHub CI: none is currently reported for this repository/PR;
+- no canonical, external or private-data mutation is required for validation.
+
+A review environment without network/package installation must report that limitation rather than convert static review into a false full-test claim.
 
 ## MIP treatment
 
@@ -133,4 +176,4 @@ No A2A adoption, enterprise authorization programme, orchestration redesign, app
 
 ## Next smallest action
 
-Review this exact bounded branch/PR. If accepted, merge the adapter and receipt. Then stop. Revisit legacy federation/session naming only when a real consumer or transport activation requires it.
+Run the focused proof plus normal build/tests at the repaired exact head in an execution environment with repository dependencies available, then perform independent exact-head review. If accepted, the human operator may decide whether to merge. Then stop. Revisit legacy federation/session naming only when a real consumer or transport activation requires it.
