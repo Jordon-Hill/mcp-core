@@ -9,7 +9,8 @@
     "start": "ts-node src/index.ts",
     "demo": "ts-node src/index.ts",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "verify:mcp-2026-07-28": "ts-node scripts/verify_mcp_2026_07_28.ts"
   },
   "repository": {
     "type": "git",
